@@ -1,0 +1,326 @@
+---
+Date: 2024-12-23
+Group: T2Gr04
+Elememts:
+  António Santos (123434)
+  Frederico Silva (112959)
+  Gonçalo Henriques (123422)
+  Jonasse Mbaki (111900)
+  José Alberto (121959)
+---
+
+## Data Selection
+
+```{r}
+# install.packages("xlsx")
+library(xlsx)
+dataset <- read.xlsx("Preco_casas_final.xlsx", sheetName="Sheet2")
+```
+
+```{r}
+# Seleção dos registos correpondentes ao nosso grupo 
+dataset = dataset[which(dataset$T2Gr04 == 1),2:13]
+
+paste("Após a seleção dos registos do nosso grupo ficou-se com: ",nrow(dataset),"registos.")
+```
+
+```{r}
+# Visualização da "head" do dataset
+head(dataset)
+```
+
+```{r}
+# Visualização da "tail" do dataset
+tail(dataset)
+```
+
+## Data Preparation
+
+```{r}
+# Função para o tratamento de valores decimais
+calcular_valor <- function(valor, dec) {
+  inteiro <- floor(valor) 
+  decimal <- valor - inteiro
+  adicional <- floor(decimal / dec)
+  resultado <- inteiro + adicional
+  return(resultado)
+}
+```
+
+```{r}
+# Tratamento das variáveis com valores decimais inapropriados
+dataset$nrWC <- calcular_valor(dataset$nrWC, .25)
+dataset$nrAndares <- calcular_valor(dataset$nrAndares, .5)
+```
+
+```{r}
+# Tratamento dos registos com os valores do ano de renovação inferior ao ano de construção
+dataset[which(dataset$Ano_renovacao < dataset$Ano_construcao & dataset$Ano_renovacao != 0),12] <- 0
+```
+
+```{r}
+# Remoção de outliers
+dataset <-  dataset[which(dataset$preco < 0.25*1e7),]
+dataset <-  dataset[which(dataset$Sala_estar_m2 < 180),]
+dataset <-  dataset[which(dataset$lote_m2 < 20000),]
+dataset <-  dataset[which(dataset$piso_m2 < 500),]
+dataset <-  dataset[which(dataset$arrecadacao_m2 < 750),]
+
+paste("Após a remoção de Outliers ficou-se com: ",nrow(dataset),"registos.")
+
+```
+
+### Export do dataset final para csv
+
+```{r}
+#write.csv(dataset, file = "dataset_final.csv", row.names = FALSE, na = "")
+```
+
+## PCA
+
+```{r}
+library(psych)
+library(corrplot)
+```
+
+```{r}
+# Seleção das variáveis de input
+dataInput <- dataset[, -c(1,11,12)]
+```
+
+### Adequabilidade
+
+#### Matriz de correlação
+
+```{r}
+correlation <- cor(dataInput)
+par(oma = c(2, 2, 2, 2))   # space rounf the graph
+corrplot.mixed(correlation,
+               order = "hclust",   
+               tl.pos = "lt",      
+               upper = "ellipse")
+```
+
+#### Teste de Bartett
+
+```{r}
+test <- cortest.bartlett(correlation, n=100)
+test
+#P-value quase nulo, PCA ensues
+```
+
+#### Medida KMO
+
+```{r}
+KMO(correlation)
+```
+
+### Data standardization
+
+```{r}
+dataInput <- scale(dataInput)
+```
+
+```{r}
+# PC extraction for 9 PCs without rotation
+pc9 <- principal(dataInput, nfactors = 9, rotate = "none", scores = TRUE)
+pc9
+```
+
+#### Kaiser criterion
+
+```{r}
+# Screeplot
+plot(pc9$values, type = "b", main = "Scree plot for House Price dataset", 
+     xlab = "Number of PC", ylab = "Eigenvalue")
+# 9 Pcs
+```
+
+```{r}
+round(pc9$values,3)
+```
+
+#### Critério da variância explicada
+
+```{r}
+pc9$loadings
+```
+
+```{r}
+# PC extraction para 3 PCs
+pc3 <- principal(dataInput, nfactors = 3, rotate = "none", scores = TRUE)
+pc3
+```
+
+#### Communality's criterion
+
+```{r}
+pc3$communality
+```
+
+#### Critério da interpretabilidade (Rotação)
+
+```{r}
+# PC extraction for 3 PCs with varimax rotation
+pc3_r <- principal(dataInput, nfactors = 3, rotate = "varimax", scores = TRUE)
+pc3_r
+```
+
+### Interpretation for 3 PC's
+
+```{r}
+pc3_r$loadings
+```
+
+```{r}
+# Interpretação das variáveis "lote_m2" e "piso_m2"
+paste("O número registos onde a dimensão do lote é inferior à do piso e o número de andares é igual a 1 é:",nrow(dataset[which(dataset$lote_m2 < dataset$piso_m2 & dataset$nrAndares == 1),]))
+paste("O mesmo caso mas com um número de andares superior a 1 é:", nrow(dataset[which(dataset$lote_m2 < dataset$piso_m2),]))
+```
+
+### Componente scores
+
+```{r}
+dataset[c("dimensao_interna", "altura", "dimensao_externa")] <- pc3$scores
+```
+
+```{r}
+# Visualização da "head" do dataset
+head(dataset)
+```
+
+
+## Clustering
+
+```{r}
+# bibliotecas
+# install.packages('gpairs')
+library(cluster)
+library(gpairs)
+library(dplyr)
+library(mclust)
+```
+
+### Hierarchical cluster
+
+```{r}
+pc_dist <- dist(scale(dataset[,13:15]))
+hclust  <- hclust(pc_dist, method = "ward.D2")
+plot(hclust, hang=-1, labels=FALSE)
+```
+
+### Cut the dendrogram
+
+```{r}
+groups.h35 <- cutree(hclust, h = 35) # cut tree in height equals to 35
+plot(hclust)
+rect.hclust(hclust, h=35, border="red")
+```
+
+### K-Means: with 5 clusters
+
+```{r}
+kmeans.h35 <- kmeans(dataset[,13:15], 5)
+```
+
+### Silhouette for hierarchical clustering
+
+```{r}
+plot(silhouette(groups.h35, pc_dist))
+# Based on the dendrogram select 5 clusters
+```
+
+### WSS metric for K-means
+
+```{r}
+wssplot <- function(xx, nc=15, seed=123){
+  wss <- (nrow(xx)-1)*sum(apply(xx,2,var))
+  for (i in 2:nc){
+    set.seed(seed)
+    wss[i] <- sum(kmeans(xx, centers=i)$withinss)}
+  plot(1:nc, wss, type="b", xlab="Number of Clusters",
+       ylab="Within groups sum of squares")
+  print(wss)}
+wssplot(dataset[,13:15], nc=5)
+
+```
+
+### Silhouette for K-means tecnique
+
+```{r}
+plot(silhouette(kmeans.h35$cluster, pc_dist))
+```
+
+### Probabilistic clustering
+
+```{r}
+# Dataset
+data <- dataset[,13:15]
+
+# Model selection
+BIC <- mclustBIC(data)
+plot(BIC)
+```
+
+### Model estimation
+
+```{r}
+results <- Mclust(dataset[,13:15], x = BIC)
+summary(results, parameters = TRUE)
+```
+
+### Classification
+
+```{r}
+plot(results, what = "classification")
+plot(results, what = "uncertainty")
+```
+
+### Adiciona-se a variavel cluster ao dataset
+
+```{r}
+dataset = dataset %>% mutate(cluster = kmeans.h35$cluster)
+```
+
+```{r}
+#Barplot of average score in each principal component within each cluster
+barplot(colMeans(subset(dataset,cluster==1)[,13:15]),main= "Cluster 1 - Average score in each principal component")
+barplot(colMeans(subset(dataset,cluster==2)[,13:15]),main= "Cluster 2 - Average score in each principal component")
+barplot(colMeans(subset(dataset,cluster==3)[,13:15]),main= "Cluster 3 - Average score in each principal component")
+barplot(colMeans(subset(dataset,cluster==4)[,13:15]),main= "Cluster 4 - Average score in each principal component")
+barplot(colMeans(subset(dataset,cluster==5)[,13:15]),main= "Cluster 5 - Average score in each principal component")
+colMeans(subset(dataset,cluster==1)[,13:15])
+colMeans(subset(dataset,cluster==2)[,13:15])
+colMeans(subset(dataset,cluster==3)[,13:15])
+colMeans(subset(dataset,cluster==4)[,13:15])
+colMeans(subset(dataset,cluster==5)[,13:15])
+```
+
+```{r}
+### Barplot of price distribution within each cluster
+barplot(prop.table(table(subset(dataset,cluster==1 & preco != 0)[,1])),main= "Cluster 1 vs. Price")
+barplot(prop.table(table(subset(dataset,cluster==2 & preco != 0)[,1])),main= "Cluster 2 vs. Price")
+barplot(prop.table(table(subset(dataset,cluster==3 & preco != 0)[,1])),main= "Cluster 3 vs. Price")
+barplot(prop.table(table(subset(dataset,cluster==4 & preco != 0)[,1])),main= "Cluster 4 vs. Price")
+barplot(prop.table(table(subset(dataset,cluster==5 & preco != 0)[,1])),main= "Cluster 5 vs. Price")
+```
+
+```{r}
+### Barplot of ano_construcao distribution within each cluster
+barplot(prop.table(table(subset(dataset,cluster==1)[,11])),main= "Cluster 1 vs. Ano_Construcao")
+barplot(prop.table(table(subset(dataset,cluster==2)[,11])),main= "Cluster 2 vs. Ano_Construcao")
+barplot(prop.table(table(subset(dataset,cluster==3)[,11])),main= "Cluster 3 vs. Ano_Construcao")
+barplot(prop.table(table(subset(dataset,cluster==4)[,11])),main= "Cluster 4 vs. Ano_Construcao")
+barplot(prop.table(table(subset(dataset,cluster==5)[,11])),main= "Cluster 5 vs. Ano_Construcao")
+```
+
+```{r}
+### Barplot of ano_remodelaçao distribution within each cluster
+barplot(prop.table(table(subset(dataset,cluster==1 & Ano_renovacao != 0)[,12])),main= "Cluster 1 vs. Ano_Remodelacao")
+barplot(prop.table(table(subset(dataset,cluster==2 & Ano_renovacao != 0)[,12])),main= "Cluster 2 vs. Ano_Remodelacao")
+barplot(prop.table(table(subset(dataset,cluster==3 & Ano_renovacao != 0)[,12])),main= "Cluster 3 vs. Ano_Remodelacao")
+barplot(prop.table(table(subset(dataset,cluster==4 & Ano_renovacao != 0)[,12])),main= "Cluster 4 vs. Ano_Remodelacao")
+barplot(prop.table(table(subset(dataset,cluster==5 & Ano_renovacao != 0)[,12])),main= "Cluster 5 vs. Ano_Remodelacao")
+```
+
+
