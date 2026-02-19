@@ -2,7 +2,7 @@
 
 ## 📌 Descrição
 
-Projeto desenvolvido no âmbito da unidade curricular de Métodos de Aprendizagem Não Supervisionada.
+Projeto desenvolvido no âmbito da unidade curricular de Métodos de Aprendizagem Não Supervisionada, tendo obtido a classificação final **19 valores**.
 
 O objetivo foi segmentar imóveis com base nas suas características estruturais e dimensionais, utilizando técnicas de redução de dimensionalidade (PCA) e métodos de clustering, de forma a compreender os fatores que influenciam o preço no mercado imobiliário.
 
